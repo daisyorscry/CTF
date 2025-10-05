@@ -1,0 +1,9 @@
+name: test-runner
+on: [workflow_dispatch]
+jobs:
+  ping:
+    runs-on: [self-hosted, linux, x64, k8s, ctf]
+    steps:
+      - name: Echo
+        run: echo "Runner is working:"
+        shell: bash
