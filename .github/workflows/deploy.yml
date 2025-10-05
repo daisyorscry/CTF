@@ -85,12 +85,12 @@ RUN set -eux; \
     armv7l|armhf)   _fname='supercronic-linux-arm'   ;; \
     i386|i686|x86)  _fname='supercronic-linux-386'   ;; \
     *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
-  esac; \
-  url="https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/${_fname}"; \
-  curl -fL --retry 5 --retry-connrefused --retry-delay 2 -o /usr/bin/supercronic "$url"; \
-  chmod +x /usr/bin/supercronic; \
-  mkdir -p /etc/supercronic; \
-  echo "*/1 * * * * php ${ROOT}/artisan schedule:run --no-interaction" > /etc/supercronic/laravel
+    esac; \
+    url="https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/${_fname}"; \
+    curl -fL --retry 5 --retry-connrefused --retry-delay 2 -o /usr/bin/supercronic "$url"; \
+    chmod +x /usr/bin/supercronic; \
+    mkdir -p /etc/supercronic; \
+    echo "*/1 * * * * php ${ROOT}/artisan schedule:run --no-interaction" > /etc/supercronic/laravel
 
 RUN userdel --remove --force www-data \
     && groupadd --force -g ${WWWGROUP} ${USER} \
