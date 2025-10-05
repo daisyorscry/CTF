@@ -11,7 +11,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ctf-runner
+    runs-on: [self-hosted, Linux, X64, k8s, ctf]
 
     env:
       REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
