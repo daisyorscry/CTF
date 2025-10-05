@@ -38,43 +38,24 @@ RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
 
 ADD --chmod=0755 https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
 
-RUN apt-get update; \
+RUN set -eux; \
+    sed -i \
+      -e 's|http://deb.debian.org|https://deb.debian.org|g' \
+      -e 's|http://security.debian.org|https://security.debian.org|g' \
+      /etc/apt/sources.list; \
+    printf 'Acquire::ForceIPv4 "true";\nAcquire::Retries "5";\n' > /etc/apt/apt.conf.d/99net; \
+    apt-get update; \
     apt-get upgrade -yqq; \
     apt-get install -yqq --no-install-recommends --show-progress \
-    apt-utils \
-    curl \
-    wget \
-    vim \
-    ncdu \
-    procps \
-    unzip \
-    ca-certificates \
-    supervisor \
-    libsodium-dev \
-    && install-php-extensions \
-    apcu \
-    bz2 \
-    pcntl \
-    mbstring \
-    bcmath \
-    sockets \
-    pdo_pgsql \
-    opcache \
-    exif \
-    pdo_mysql \
-    zip \
-    uv \
-    intl \
-    gd \
-    redis \
-    rdkafka \
-    memcached \
-    ldap \
-    swoole \
-    && apt-get -y autoremove \
-    && apt-get clean \
-    && docker-php-source delete \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/lastlog /var/log/faillog
+      curl wget vim ncdu procps unzip ca-certificates supervisor libsodium-dev; \
+    update-ca-certificates; \
+    install-php-extensions \
+      apcu bz2 pcntl mbstring bcmath sockets pdo_pgsql opcache exif \
+      pdo_mysql zip uv intl gd redis rdkafka memcached ldap swoole; \
+    apt-get -y autoremove; \
+    apt-get clean; \
+    docker-php-source delete; \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/lastlog /var/log/faillog
 
 RUN arch="$(uname -m)" \
     && case "$arch" in \
