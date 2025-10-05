@@ -42,41 +42,24 @@ ADD --chmod=0755 https://github.com/mlocati/docker-php-extension-installer/relea
 RUN apt-get update; \
     apt-get upgrade -yqq; \
     apt-get install -yqq --no-install-recommends --show-progress \
-    apt-utils \
-    curl \
-    wget \
-    vim \
-    ncdu \
-    procps \
-    unzip \
-    ca-certificates \
-    supervisor \
-    libsodium-dev \
+      apt-utils \
+      curl \
+      wget \
+      vim \
+      ncdu \
+      procps \
+      unzip \
+      ca-certificates \
+      supervisor \
+      libsodium-dev \
+      git openssh-client \
     && install-php-extensions \
-    apcu \
-    bz2 \
-    pcntl \
-    mbstring \
-    bcmath \
-    sockets \
-    pdo_pgsql \
-    opcache \
-    exif \
-    pdo_mysql \
-    zip \
-    uv \
-    intl \
-    gd \
-    redis \
-    rdkafka \
-    memcached \
-    ldap \
-    swoole \
+      apcu bz2 pcntl mbstring bcmath sockets pdo_pgsql opcache exif \
+      pdo_mysql zip uv intl gd redis rdkafka memcached ldap swoole \
     && apt-get -y autoremove \
     && apt-get clean \
     && docker-php-source delete \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/lastlog /var/log/faillog
-
 
 RUN userdel --remove --force www-data \
     && groupadd --force -g ${WWWGROUP} ${USER} \
