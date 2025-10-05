@@ -7,10 +7,10 @@ on:
 
 jobs:
   deploy:
+    environment: production
     runs-on: [self-hosted, Linux, X64, k8s, ctf]
 
     env:
-      # Pastikan TANPA "https://"
       REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
       IMAGE_NAME:   ${{ secrets.IMAGE_NAME }}
       K8S_NAMESPACE: ${{ secrets.K8S_NAMESPACE }}
