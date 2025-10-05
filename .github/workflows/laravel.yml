@@ -2,6 +2,6 @@ name: test-runner
 on: [workflow_dispatch]
 jobs:
   ping:
-    runs-on: [self-hosted, linux, k8s, ctf]
+    runs-on: self-hosted
     steps:
-      - run: echo "Runner is working: $(uname -a)"
+      - run: echo "Runner is working"
