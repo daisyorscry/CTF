@@ -1,0 +1,197 @@
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "10"
+    compress: "true"
+
+x-base: &base
+  profiles: [app]
+  depends_on:
+    pgbouncer:
+      condition: service_started
+    redis:
+      condition: service_healthy
+  build:
+    context: .
+    dockerfile: Swoole.Dockerfile
+    args:
+      APP_ENV: "production"
+      WWWUSER: ${HOST_UID:-1000}
+      WWWGROUP: ${HOST_GID:-1000}
+  image: "laravel/app:latest"
+  user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 65536
+  security_opt:
+    - no-new-privileges:true
+  networks:
+    - stack
+  volumes:
+    - "./storage/app/public:/var/www/html/storage/app/public"
+    - "./storage/logs:/var/www/html/storage/logs"
+  logging: *default-logging
+  restart: unless-stopped
+
+services:
+  traefik:
+    profiles: [app]
+    image: traefik:v3.5
+    restart: unless-stopped
+    command:
+      - "--log.level=ERROR"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedByDefault=false"
+      - "--providers.docker.network=stack"
+      - "--entryPoints.app.address=:80"
+      - "--entryPoints.app-secure.address=:443"
+      - "--entryPoints.app-secure.http3=true"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    networks:
+      - stack
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    logging: *default-logging
+    labels:
+      traefik.enable: true
+
+  redis:
+    profiles: [app]
+    image: redis:7-alpine
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    command:
+      - "redis-server"
+      - "--requirepass"
+      - "${REDIS_PASSWORD}"
+      - "--maxmemory"
+      - "${REDIS_MAXMEMORY:-2gb}"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+      - "--save"
+      - "900"
+      - "1"
+      - "--save"
+      - "300"
+      - "10"
+      - "--save"
+      - "60"
+      - "10000"
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - "stack-redis:/data"
+    networks:
+      - stack
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    labels:
+      traefik.enable: false
+
+  pgsql:
+    profiles: [app]
+    image: "postgres:${POSTGRES_VERSION:-17}-alpine"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_DB: "${DB_DATABASE}"
+      POSTGRES_USER: "${DB_USERNAME}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
+    volumes:
+      - "stack-pgsql:/var/lib/postgresql/data"
+      - "../backup:/backup"
+    networks:
+      - stack
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}"]
+      interval: 15s
+      timeout: 20s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+    labels:
+      traefik.enable: false
+      docker-volume-backup.stop-during-backup: "true"
+      docker-volume-backup.archive-pre: /bin/sh -c 'pg_dump -U ${DB_USERNAME} -F t ${DB_DATABASE} > /backup/${DB_DATABASE}-database.tar'
+
+  pgbouncer:
+    image: bitnamilegacy/pgbouncer:latest
+    depends_on:
+      pgsql:
+        condition: service_healthy
+    environment:
+      POSTGRESQL_HOST: pgsql
+      POSTGRESQL_PORT: 5432
+      PGBOUNCER_DATABASE: "${DB_DATABASE}"
+      POSTGRESQL_USERNAME: "${DB_USERNAME}"
+      POSTGRESQL_PASSWORD: "${DB_PASSWORD}"
+      PGBOUNCER_POOL_MODE: session
+      PGBOUNCER_AUTH_TYPE: md5
+      PGBOUNCER_MAX_CLIENT_CONN: 500
+      PGBOUNCER_DEFAULT_POOL_SIZE: 25
+      PGBOUNCER_USERLIST: "\"${DB_USERNAME}\" \"${DB_PASSWORD}\""
+    networks:
+      - stack
+    restart: unless-stopped
+    logging: *default-logging
+
+  app:
+    <<: *base
+    environment:
+      APP_ENV: production
+      APP_URL: https://localhost
+      CACHE_DRIVER: redis
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: redis
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+      REDIS_PORT: "6379"
+      DB_CONNECTION: pgsql
+      DB_HOST: pgbouncer
+      DB_PORT: "6432"
+      DB_DATABASE: "${DB_DATABASE}"
+      DB_USERNAME: "${DB_USERNAME}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+      OCTANE_HTTPS: "true"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--max-time", "10", "localhost:8000/up"]
+      interval: 2s
+      retries: 10
+      timeout: 10s
+    stop_grace_period: 35s
+    labels:
+      traefik.enable: true
+      traefik.http.routers.app-secure.rule: Host(`localhost`) || Host(`app.docker.localhost`)
+      traefik.http.routers.app-secure.entryPoints: app-secure
+      traefik.http.routers.app-secure.service: app-service
+      traefik.http.routers.app-secure.tls: true
+      traefik.http.services.app-service.loadbalancer.server.port: 8000
+
+networks:
+  stack:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1450
+
+volumes:
+  stack-pgsql:
+    driver: local
+  stack-redis:
+    driver: local
