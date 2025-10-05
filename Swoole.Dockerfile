@@ -77,20 +77,6 @@ RUN apt-get update; \
     && docker-php-source delete \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/lastlog /var/log/faillog
 
-RUN set -eux; \
-    arch="$(uname -m)"; \
-    case "$arch" in \
-        x86_64|amd64)   _fname='supercronic-linux-amd64' ;; \
-        aarch64|arm64)  _fname='supercronic-linux-arm64' ;; \
-        armv7l|armhf)   _fname='supercronic-linux-arm'   ;; \
-        i386|i686|x86)  _fname='supercronic-linux-386'   ;; \
-        *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
-    esac; \
-    url="https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/${_fname}"; \
-    curl -fL --retry 5 --retry-connrefused --retry-delay 2 -o /usr/bin/supercronic "$url"; \
-    chmod +x /usr/bin/supercronic; \
-    mkdir -p /etc/supercronic; \
-    echo "*/1 * * * * php ${ROOT}/artisan schedule:run --no-interaction" > /etc/supercronic/laravel
 
 RUN userdel --remove --force www-data \
     && groupadd --force -g ${WWWGROUP} ${USER} \
