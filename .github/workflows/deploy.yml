@@ -10,93 +10,71 @@ jobs:
     runs-on: [self-hosted, Linux, X64, k8s, ctf]
 
     env:
+      # Pastikan TANPA "https://"
       REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
-      IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+      IMAGE_NAME:   ${{ secrets.IMAGE_NAME }}
       K8S_NAMESPACE: ${{ secrets.K8S_NAMESPACE }}
       DEPLOYMENT_NAME: ${{ secrets.K8S_DEPLOYMENT_NAME }}
+      DOCKER_HOST: tcp://localhost:2375
 
     steps:
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Compute VERSION_TAG
-        id: vars
         run: |
-          COMMIT=$(git rev-parse --short HEAD)
-          BRANCH=$(git rev-parse --abbrev-ref HEAD)
-          VERSION_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo ${BRANCH}-${COMMIT})
-          echo "VERSION_TAG=$VERSION_TAG" >> $GITHUB_ENV
-          echo "Resolved VERSION_TAG=$VERSION_TAG"
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION_TAG="${GITHUB_REF_NAME}"                # pakai tag (mis. v1.2.3)
+          else
+            COMMIT=$(git rev-parse --short HEAD)
+            BRANCH="${GITHUB_REF_NAME:-$(git rev-parse --abbrev-ref HEAD)}"
+            VERSION_TAG="${BRANCH}-${COMMIT}"
+          fi
+          echo "VERSION_TAG=$VERSION_TAG" | tee -a "$GITHUB_ENV"
+
+      - name: Fetch docker client (no sudo)
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          DOCKER_VER=27.1.1
+          curl -fsSL -o /tmp/docker.tgz "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VER}.tgz"
+          tar -xzf /tmp/docker.tgz -C /tmp
+          install -m 0755 /tmp/docker/docker "$HOME/bin/docker"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          docker version
+
+      - name: Docker login to Harbor
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY_URL" -u "$REGISTRY_USERNAME" --password-stdin
+
+      - name: Build & Push image
+        run: |
+          set -euo pipefail
+          docker build -f Swoole.Dockerfile -t "${REGISTRY_URL}/${IMAGE_NAME}:${VERSION_TAG}" .
+          docker tag "${REGISTRY_URL}/${IMAGE_NAME}:${VERSION_TAG}" "${REGISTRY_URL}/${IMAGE_NAME}:latest"
+          docker push "${REGISTRY_URL}/${IMAGE_NAME}:${VERSION_TAG}"
+          docker push "${REGISTRY_URL}/${IMAGE_NAME}:latest"
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
         with:
           version: v1.30.0
+
       - name: Configure kubeconfig
         run: |
+          set -euo pipefail
           mkdir -p ~/.kube
           echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
           chmod 600 ~/.kube/config
 
-      - name: Ensure build namespace & Harbor creds (for Kaniko)
-        env:
-          REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          kubectl get ns build >/dev/null 2>&1 || kubectl create ns build
-          kubectl -n build create secret docker-registry harbor-creds \
-            --docker-server="${REGISTRY_URL}" \
-            --docker-username="${REGISTRY_USERNAME}" \
-            --docker-password="${REGISTRY_PASSWORD}" \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Launch Kaniko build job
-        env:
-          REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
-          IMAGE_NAME:   ${{ secrets.IMAGE_NAME }}
-          GIT_TOKEN:    ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          TEMPLATE=/root/ISSUER/CICD/kaniko-job.yaml.template
-          test -f "$TEMPLATE" || { echo "Template tidak ditemukan: $TEMPLATE"; exit 1; }
-
-          JOB_NAME=kaniko-build-${{ github.run_id }}-${{ github.run_attempt }}
-
-          if [ -n "${GIT_TOKEN:-}" ]; then
-            GIT_CONTEXT="https://${GIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git#${GITHUB_SHA}"
-          else
-            GIT_CONTEXT="https://github.com/${GITHUB_REPOSITORY}.git#${GITHUB_SHA}"
-          fi
-
-          export JOB_NAME GIT_CONTEXT REGISTRY_URL IMAGE_NAME VERSION_TAG
-          envsubst < "$TEMPLATE" > /tmp/kaniko-job.yaml
-
-          #(private repo)
-          if [ -n "${GIT_TOKEN:-}" ]; then
-            kubectl -n build create secret generic github-token \
-              --from-literal=token="${GIT_TOKEN}" \
-              --dry-run=client -o yaml | kubectl apply -f -
-          fi
-
-          kubectl apply -f /tmp/kaniko-job.yaml
-          if ! kubectl -n build wait --for=condition=complete job/${JOB_NAME} --timeout=30m; then
-            echo "Kaniko job failed. Showing logs…"
-            kubectl -n build logs job/${JOB_NAME} --all-containers || true
-            exit 1
-          fi
-
-      - name: Update K8s Deployment image
+      - name: Rollout Deployment
         run: |
           set -euo pipefail
           kubectl -n "$K8S_NAMESPACE" set image deployment/"$DEPLOYMENT_NAME" \
             app="${REGISTRY_URL}/${IMAGE_NAME}:${VERSION_TAG}"
-          kubectl -n "$K8S_NAMESPACE" rollout status deployment/"$DEPLOYMENT_NAME" --timeout=180s
-
-      - name: Update K8s Deployment image
-        run: |
-          kubectl -n "$K8S_NAMESPACE" set image deployment/"$DEPLOYMENT_NAME" \
-            app="${{ secrets.IMAGE_NAME }}:${{ env.VERSION_TAG }}"
           kubectl -n "$K8S_NAMESPACE" rollout status deployment/"$DEPLOYMENT_NAME" --timeout=180s
