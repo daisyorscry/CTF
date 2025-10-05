@@ -39,10 +39,17 @@ RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
 ADD --chmod=0755 https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
 
 RUN set -eux; \
-    sed -i \
-      -e 's|http://deb.debian.org|https://deb.debian.org|g' \
-      -e 's|http://security.debian.org|https://security.debian.org|g' \
-      /etc/apt/sources.list; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i -E 's|URIs:\s*http://|URIs: https://|g' /etc/apt/sources.list.d/debian.sources; \
+    fi; \
+    if [ -f /etc/apt/sources.list ]; then \
+      sed -i -E 's|http://|https://|g' /etc/apt/sources.list; \
+    fi; \
+    if [ ! -f /etc/apt/sources.list ] && [ ! -f /etc/apt/sources.list.d/debian.sources ]; then \
+      echo 'deb https://deb.debian.org/debian bookworm main contrib non-free non-free-firmware' > /etc/apt/sources.list; \
+      echo 'deb https://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware' >> /etc/apt/sources.list; \
+      echo 'deb https://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware' >> /etc/apt/sources.list; \
+    fi; \
     printf 'Acquire::ForceIPv4 "true";\nAcquire::Retries "5";\n' > /etc/apt/apt.conf.d/99net; \
     apt-get update; \
     apt-get upgrade -yqq; \
@@ -56,6 +63,7 @@ RUN set -eux; \
     apt-get clean; \
     docker-php-source delete; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/lastlog /var/log/faillog
+
 
 RUN arch="$(uname -m)" \
     && case "$arch" in \
