@@ -32,11 +32,6 @@ jobs:
         uses: azure/setup-kubectl@v4
         with:
           version: v1.30.0
-      - name: Ensure envsubst
-        run: |
-            if ! command -v envsubst >/dev/null; then
-              sudo apt-get update && sudo apt-get install -y gettext-base
-            fi
       - name: Configure kubeconfig
         run: |
           mkdir -p ~/.kube
@@ -76,11 +71,10 @@ jobs:
             GIT_CONTEXT="https://github.com/${GITHUB_REPOSITORY}.git#${GITHUB_SHA}"
           fi
 
-          # Render template server → /tmp
           export JOB_NAME GIT_CONTEXT REGISTRY_URL IMAGE_NAME VERSION_TAG
           envsubst < "$TEMPLATE" > /tmp/kaniko-job.yaml
 
-          # Secret opsional untuk GIT_TOKEN (private repo)
+          #(private repo)
           if [ -n "${GIT_TOKEN:-}" ]; then
             kubectl -n build create secret generic github-token \
               --from-literal=token="${GIT_TOKEN}" \
